@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Altın Takas Hesabı</title>
+<meta name="description" content="Kuyumcuda eski altını yenisiyle değiştirirken has farkını ve Altınkaynak fiyatlarıyla TL karşılığını hesaplar.">
+<meta name="theme-color" content="#1f1d17">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="ikon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="ikon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Altın Takas">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+<style>
+/* Tek sütun, telefona göre. Üstte sonuç, sonra fiyat, sonra parçalar. */
+:root{
+  --bg:#f7f6f2; --card:#ffffff; --fg:#1d1b16; --muted:#6b665a; --line:#e3dfd3;
+  --gold:#8a5f00; --gold-soft:#f5ead0; --good:#1f7a4a; --good-soft:#e2f3e9;
+  --bad:#b3261e; --bad-soft:#fbe6e4; --warn:#8a5a00; --warn-soft:#fdf0d5;
+  --f-body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-num:ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#15140f; --card:#1f1d17; --fg:#f1ede2; --muted:#a39d8c; --line:#35322a;
+  --gold:#e3b441; --gold-soft:#3a2f14; --good:#5fd08f; --good-soft:#163424;
+  --bad:#ff8a80; --bad-soft:#3d1a17; --warn:#f0c060; --warn-soft:#3a2e12; color-scheme:dark}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:16px;line-height:1.45;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.wrap{max-width:560px;margin:0 auto;padding-inline:16px;padding-block:18px 48px;display:flex;flex-direction:column;gap:16px}
+h1{font-size:1.6rem;font-weight:800;margin:0;letter-spacing:-.01em}
+h2{font-size:1.1rem;font-weight:700;margin:0}
+.sub{margin:4px 0 0;color:var(--muted);font-size:.93rem}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+
+.result{border:2px solid var(--gold);border-radius:14px;padding:16px;background:var(--card);display:flex;flex-direction:column;gap:12px}
+.verdict{border-radius:10px;padding:12px 14px;font-weight:600}
+.verdict.good{background:var(--good-soft);color:var(--good)}
+.verdict.bad{background:var(--bad-soft);color:var(--bad)}
+.verdict.warn{background:var(--warn-soft);color:var(--warn)}
+.big{font-family:var(--f-num);font-size:2rem;font-weight:700;line-height:1.1;display:block;margin-top:2px;overflow-wrap:anywhere}
+.eqs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.eq{background:var(--bg);border-radius:8px;padding:8px 10px;min-width:0}
+.eq small{display:block;color:var(--muted);font-size:.78rem}
+.eq b{font-family:var(--f-num);font-size:1.05rem;overflow-wrap:anywhere}
+.eq.full{grid-column:1/-1}
+.note{font-size:.85rem;color:var(--muted);margin:0}
+
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:.82rem;font-weight:600;border-radius:999px;padding:3px 10px}
+.pill::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.pill.good{background:var(--good-soft);color:var(--good)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.prices{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ph{grid-column:1/-1;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center}
+.ph small{color:var(--muted)}
+.prow{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}
+
+.mrow{display:flex;justify-content:space-between;gap:10px;font-size:.95rem}
+.mrow span:last-child{font-family:var(--f-num);font-variant-numeric:tabular-nums;white-space:nowrap}
+.mrow.tot{border-top:1px solid var(--line);padding-top:8px;font-weight:700}
+.market{display:flex;flex-direction:column;gap:8px}
+
+.section{display:flex;flex-direction:column;gap:10px}
+.sec-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.sec-head .tot{color:var(--muted);font-size:.9rem}
+.item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.item.hatali{border-color:var(--bad)}
+.item .top{grid-column:1/-1;display:flex;gap:8px;align-items:center}
+.item .top input{flex:1;min-width:0}
+label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--muted);min-width:0}
+.span2{grid-column:1/-1}
+input,select{font:inherit;font-size:1.05rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;width:100%;min-width:0}
+input.n{font-family:var(--f-num)}
+input[aria-invalid="true"]{border-color:var(--bad);background:var(--bad-soft)}
+input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+.err{font-size:.8rem;color:var(--bad);min-height:0}
+.hint{grid-column:1/-1;font-size:.82rem;color:var(--muted)}
+.hint b{color:var(--fg);font-family:var(--f-num)}
+button,.btn{font:inherit;cursor:pointer;border-radius:10px;text-decoration:none;text-align:center}
+.del{border:1px solid var(--line);background:transparent;color:var(--muted);padding:8px 12px;font-size:.85rem}
+.add{border:1px dashed var(--gold);background:transparent;color:var(--gold);padding:10px;font-weight:600}
+.ghost{border:1px solid var(--line);background:transparent;color:var(--fg);padding:8px 12px;font-size:.88rem}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.primary{background:var(--gold);color:var(--bg);border:0;padding:14px;font-weight:700;font-size:1rem}
+.wa{background:#1f8a4c;color:#fff;border:0;padding:14px;font-weight:700;font-size:1rem;display:block}
+.msg{font-size:.85rem;color:var(--good);text-align:center;margin:0;min-height:1.2em}
+.ask{background:var(--gold-soft);border-radius:12px;padding:12px 14px;font-size:.92rem}
+.ask ol{margin:6px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+textarea{width:100%;min-height:150px;font-family:var(--f-num);font-size:.85rem;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px}
+footer{font-size:.78rem;color:var(--muted);text-align:center}
+@media (max-width:360px){.eqs,.actions,.prices{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Altın Takas Hesabı</h1>
+    <p class="sub">Verdiğiniz ve aldığınız altını saf altına (has) çevirip farkı gösterir. Kutulara kuyumcunun söylediğini yazın, sonuç anında değişir.</p>
+  </header>
+
+  <section class="result" aria-live="polite">
+    <div id="verdict" class="verdict warn">
+      <span id="verdictText">Hesaplanıyor…</span>
+      <span class="big" id="bigHas"></span>
+    </div>
+    <div class="eqs" id="eqs">
+      <div class="eq"><small>22 ayar olarak</small><b id="eq22">–</b></div>
+      <div class="eq"><small>14 ayar olarak</small><b id="eq14">–</b></div>
+      <div class="eq full"><small id="eqTLl">Para olarak</small><b id="eqTL">–</b></div>
+    </div>
+    <p class="note" id="theoNote"></p>
+  </section>
+
+  <section class="card prices" aria-labelledby="fiyatBaslik">
+    <div class="ph"><h2 id="fiyatBaslik">Güncel fiyat</h2><span id="durum" class="pill warn">Yükleniyor</span></div>
+    <p class="hint" id="fiyatBilgi" style="margin:0"></p>
+    <label for="pHasAlis">Has alış (TL/g)<input id="pHasAlis" class="n" inputmode="decimal" autocomplete="off"><span class="err" id="pHasAlisErr"></span></label>
+    <label for="pHasSatis">Has satış (TL/g)<input id="pHasSatis" class="n" inputmode="decimal" autocomplete="off"><span class="err" id="pHasSatisErr"></span></label>
+    <label for="p14">14 ayar satış (TL/g)<input id="p14" class="n" inputmode="decimal" autocomplete="off"><span class="err" id="p14Err"></span></label>
+    <label for="p22">22 ayar bilezik satış<input id="p22" class="n" inputmode="decimal" autocomplete="off"><span class="err" id="p22Err"></span></label>
+    <div class="prow">
+      <button class="ghost" id="yenile" type="button">Fiyatı yenile</button>
+      <span class="hint" style="grid-column:auto;align-self:center">Kuyumcunun panosu farklıysa kutuya yazın.</span>
+    </div>
+  </section>
+
+  <section class="card market" id="marketBox">
+    <h2>Piyasa kıyası</h2>
+    <div class="mrow"><span>Verilen altının değeri</span><span id="mGiven">–</span></div>
+    <div class="mrow"><span>Alınan altının satış fiyatı</span><span id="mTaken">–</span></div>
+    <div class="mrow tot"><span id="mDiffL">Fark</span><span id="mDiff">–</span></div>
+    <p class="note" id="mNote"></p>
+  </section>
+
+  <section class="section" aria-labelledby="vBaslik">
+    <div class="sec-head"><h2 id="vBaslik">Verdiğimiz altın</h2><span class="tot num" id="givenTot"></span></div>
+    <div id="givenList" class="section"></div>
+    <button class="add" id="addGiven" type="button">+ Verilen parça ekle</button>
+  </section>
+
+  <section class="section" aria-labelledby="aBaslik">
+    <div class="sec-head"><h2 id="aBaslik">Aldığımız altın</h2><span class="tot num" id="takenTot"></span></div>
+    <div id="takenList" class="section"></div>
+    <button class="add" id="addTaken" type="button">+ Alınan parça ekle</button>
+  </section>
+
+  <div class="actions">
+    <button class="primary" id="copyBtn" type="button">Özeti kopyala</button>
+    <a class="btn wa" id="waBtn" href="#" target="_blank" rel="noopener">WhatsApp'ta gönder</a>
+  </div>
+  <p class="msg" id="msg" role="status"></p>
+  <textarea id="fallback" hidden readonly aria-label="Kopyalanacak özet"></textarea>
+
+  <div class="ask">
+    <b>Kuyumcuya sorun:</b>
+    <ol>
+      <li>Verdiğimiz altını kaç milyemden alıyorsunuz? (8 ayarın tam değeri 0,333; 0,320 altı düşük.)</li>
+      <li>Yeni parçayı kaç milyemden veriyorsunuz? (14 ayarın tam değeri 0,585; 0,600–0,640 arası olağan.)</li>
+      <li>Eski parçayı önümüzde tartın; taş ya da kilit varsa söyleyin.</li>
+    </ol>
+  </div>
+
+  <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+    <button class="ghost" id="sifirla" type="button">Örneğe dön</button>
+    <button class="ghost" id="temizle" type="button">Hepsini temizle</button>
+  </div>
+  <p class="msg" id="onay" hidden></p>
+
+  <footer>Fiyat kaynağı: Altınkaynak, 5 dakikada bir güncellenir. Hesap yol gösterir; son söz kuyumcunun terazisi ve fişidir. · Sürüm <span id="surum"></span></footer>
+</div>
+
+<script src="hesap.js"></script>
+<script>
+"use strict";
+const H = window.Hesap, $ = (id) => document.getElementById(id);
+const DEPO = "altin-takas-v1", FIYAT_DEPO = "altin-takas-fiyat-v1";
+const ORNEK = {
+  verilen: [{ ad: "Kelepçe", gram: "23,61", ayar: "8", milyem: "0,333" }],
+  alinan: [{ ad: "Bilezik", gram: "8,62", ayar: "14", milyem: "0,585" }],
+  elle: null
+};
+
+// ---- Durum ----
+let durum = yukle() || kopya(ORNEK);
+let yuklenenFiyat = null;   // { fiyat, yasDk, eski, uyarilar, kaynakAdres }
+function kopya(o) { return JSON.parse(JSON.stringify(o)); }
+function yukle() {
+  try {
+    const d = JSON.parse(localStorage.getItem(DEPO) || "null");
+    if (d && Array.isArray(d.verilen) && Array.isArray(d.alinan)) {
+      const temiz = (arr) => arr.slice(0, 50).filter((p) => p && typeof p === "object").map((p) => ({
+        ad: String(p.ad ?? "").slice(0, 60), gram: String(p.gram ?? "").slice(0, 20),
+        ayar: Object.prototype.hasOwnProperty.call(H.AYAR, String(p.ayar)) ? String(p.ayar) : "14", milyem: String(p.milyem ?? "").slice(0, 20)
+      }));
+      const e = d.elle && typeof d.elle === "object" ? d.elle : null;
+      return { verilen: temiz(d.verilen), alinan: temiz(d.alinan), elle: e };
+    }
+  } catch (_) {}
+  return null;
+}
+let kayitZamanlayici = 0;
+function kaydetSimdi() {
+  clearTimeout(kayitZamanlayici);
+  // Elle yazılan fiyat da saklanır, yoksa sayfa yenilenince kaybolur.
+  if (durum.elle) durum.elle = { pHasAlis: $("pHasAlis").value, pHasSatis: $("pHasSatis").value, p14: $("p14").value, p22: $("p22").value };
+  try { localStorage.setItem(DEPO, JSON.stringify(durum)); } catch (_) {}
+}
+function kaydet() {
+  clearTimeout(kayitZamanlayici);
+  kayitZamanlayici = setTimeout(kaydetSimdi, 250);
+}
+// Gecikmeli kayıt, yazıp hemen WhatsApp'a geçen kullanıcının son değişikliğini
+// kaybettiriyordu (uçtan uca sınamada bulundu): sayfa gizlenirken hemen kaydedilir.
+addEventListener("pagehide", kaydetSimdi);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") kaydetSimdi(); });
+
+// ---- Parça kartları (DOM API; kullanıcı metni asla innerHTML'e girmez) ----
+function el(tag, attrs, ...cocuk) {
+  const e = document.createElement(tag);
+  for (const k in attrs || {}) {
+    if (k === "class") e.className = attrs[k];
+    else if (k === "text") e.textContent = attrs[k];
+    else e.setAttribute(k, attrs[k]);
+  }
+  cocuk.forEach((c) => c && e.appendChild(c));
+  return e;
+}
+let idSayac = 0;
+function kartCiz(taraf) {
+  const liste = $(taraf === "verilen" ? "givenList" : "takenList");
+  liste.replaceChildren();
+  durum[taraf].forEach((p, i) => {
+    const id = taraf[0] + (++idSayac);
+    const ad = el("input", { id: id + "ad", "aria-label": "Parça adı", maxlength: "60" }); ad.value = p.ad;
+    const sil = el("button", { class: "del", type: "button", text: "Sil" });
+    const gram = el("input", { id: id + "g", class: "n", inputmode: "decimal", autocomplete: "off", maxlength: "20" }); gram.value = p.gram;
+    const ayar = el("select", { id: id + "a" });
+    Object.keys(H.AYAR).forEach((k) => { const o = el("option", { value: k, text: k + " ayar" }); if (k === p.ayar) o.selected = true; ayar.appendChild(o); });
+    const mil = el("input", { id: id + "m", class: "n", inputmode: "decimal", autocomplete: "off", maxlength: "20" }); mil.value = p.milyem;
+    const gErr = el("span", { class: "err" }), mErr = el("span", { class: "err" });
+    const hint = el("div", { class: "hint" });
+    const kart = el("div", { class: "item" },
+      el("div", { class: "top" }, ad, sil),
+      el("label", { for: id + "g" }, document.createTextNode("Gram"), gram, gErr),
+      el("label", { for: id + "a" }, document.createTextNode("Ayar"), ayar),
+      el("label", { for: id + "m", class: "span2" },
+        document.createTextNode(`Kuyumcunun ${taraf === "verilen" ? "alış" : "satış"} milyemi (bilmiyorsanız dokunmayın)`), mil, mErr),
+      hint);
+    kart._alanlar = { gram, mil, gErr, mErr, hint };
+    ad.addEventListener("input", () => { p.ad = ad.value; hesapla(); });
+    gram.addEventListener("input", () => { p.gram = gram.value; hesapla(); });
+    mil.addEventListener("input", () => { p.milyem = mil.value; hesapla(); });
+    ayar.addEventListener("change", () => { p.ayar = ayar.value; p.milyem = H.fmt(H.AYAR[ayar.value]); mil.value = p.milyem; hesapla(); });
+    sil.addEventListener("click", () => { durum[taraf].splice(i, 1); kartCiz(taraf); hesapla(); });
+    liste.appendChild(kart);
+  });
+}
+
+// ---- Fiyat ----
+function veriAdresleri() {
+  const adresler = [];
+  const h = location.hostname, parca = location.pathname.split("/").filter(Boolean);
+  if (h.endsWith(".github.io") && parca.length) {
+    adresler.push(`https://raw.githubusercontent.com/${h.split(".")[0]}/${parca[0]}/veri/fiyatlar.json`);
+  }
+  adresler.push("fiyatlar.json");
+  return adresler;
+}
+async function getir(adres) {
+  const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch(adres + (adres.includes("?") ? "&" : "?") + "t=" + Date.now(), { cache: "no-store", signal: ctrl.signal });
+    if (!r.ok) throw new Error(`sunucu ${r.status} hatası verdi`);
+    const metin = await r.text();
+    if (metin.length > 100000) throw new Error("cevap çok büyük");
+    let veri;
+    try { veri = JSON.parse(metin); } catch (_) { throw new Error("gelen cevap fiyat verisi değil"); }
+    const d = H.fiyatDogrula(veri, Date.now());
+    if (!d.ok) throw new Error(d.hata);
+    d.kaynakAdres = adres;
+    return d;
+  } catch (e) {
+    // Kullanıcıya ham tarayıcı iletisi (İngilizce) gösterilmez.
+    if (e && e.name === "AbortError") throw new Error("zaman aşımı");
+    if (e instanceof TypeError) throw new Error("bağlantı kurulamadı");
+    throw e;
+  } finally { clearTimeout(t); }
+}
+let fiyatYukleniyor = false, sonNeden = "";
+async function fiyatYukle() {
+  if (fiyatYukleniyor) return;
+  fiyatYukleniyor = true;
+  $("yenile").disabled = true;
+  const sonuclar = await Promise.allSettled(veriAdresleri().map(getir));
+  const iyi = sonuclar.filter((s) => s.status === "fulfilled").map((s) => s.value)
+    .sort((a, b) => b.fiyat.zamanMs - a.fiyat.zamanMs);
+  let sec = iyi[0] || null, neden = "";
+  if (!sec) {
+    neden = sonuclar.map((s) => s.reason && s.reason.message).filter(Boolean)[0] || "bilinmeyen hata";
+    try {   // son geçerli fiyat, yeniden doğrulanarak
+      const eski = JSON.parse(localStorage.getItem(FIYAT_DEPO) || "null");
+      const d = eski ? H.fiyatDogrula(eski, Date.now()) : null;
+      if (d && d.ok) { d.onbellek = true; sec = d; }
+    } catch (_) {}
+  } else {
+    try { localStorage.setItem(FIYAT_DEPO, JSON.stringify(ham(sec.fiyat))); } catch (_) {}
+  }
+  yuklenenFiyat = sec;
+  sonNeden = neden;
+  fiyatDurumu(neden);
+  // Fiyat yoksa eski rakam kutuda kalmasın: saati bilinmeyen fiyat güncel sanılır.
+  if (!durum.elle) { if (sec) fiyatKutulariniDoldur(sec.fiyat); else ["pHasAlis", "pHasSatis", "p14", "p22"].forEach((id) => $(id).value = ""); }
+  fiyatYukleniyor = false;
+  $("yenile").disabled = false;
+  hesapla();
+}
+function ham(f) {   // doğrulayıcının tekrar okuyabileceği biçim
+  const o = { kaynak: f.kaynak, zaman: new Date(f.zamanMs).toISOString(), has: f.has };
+  ["ayar14", "ayar18", "bilezik22", "gram"].forEach((k) => { if (f[k]) o[k] = f[k]; });
+  return o;
+}
+function fiyatKutulariniDoldur(f) {
+  $("pHasAlis").value = H.fmt(f.has.alis, 2);
+  $("pHasSatis").value = H.fmt(f.has.satis, 2);
+  $("p14").value = f.ayar14 ? H.fmt(f.ayar14.satis, 2) : "";
+  $("p22").value = f.bilezik22 ? H.fmt(f.bilezik22.satis, 2) : "";
+}
+function fiyatDurumu(neden) {
+  const p = $("durum"), bilgi = $("fiyatBilgi"), f = yuklenenFiyat;
+  const saat = f ? new Date(f.fiyat.zamanMs).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+  if (durum.elle) {
+    p.className = "pill warn"; p.textContent = "Elle girildi";
+    bilgi.textContent = "Fiyatları siz yazdınız. " + (f ? `Altınkaynak'ın son fiyatı ${saat} tarihli. ` : "") + "Güncel fiyata dönmek için \"Fiyatı yenile\"ye basın.";
+    return;
+  }
+  if (!f) {
+    p.className = "pill bad"; p.textContent = "Fiyat alınamadı";
+    bilgi.textContent = `Fiyat çekilemedi (${neden}). Hesap gram olarak çalışıyor; TL karşılığı için fiyatı kuyumcunun panosundan yazın.`;
+    return;
+  }
+  const yas = H.yasMetni(f.yasDk);
+  if (f.onbellek) { p.className = "pill warn"; p.textContent = "Son kayıtlı fiyat"; bilgi.textContent = `Güncel fiyat alınamadı (${sonNeden || neden}); bu cihazda kayıtlı son fiyat gösteriliyor: ${saat} (${yas}).`; }
+  else if (f.eski) { p.className = "pill warn"; p.textContent = "Eski fiyat"; bilgi.textContent = `${f.fiyat.kaynak} · ${saat} (${yas}). Piyasa kapalı olabilir; kuyumcunun panosuyla karşılaştırın.`; }
+  else { p.className = "pill good"; p.textContent = "Güncel"; bilgi.textContent = `${f.fiyat.kaynak} · ${saat} (${yas})`; }
+  if (f.uyarilar && f.uyarilar.length) bilgi.textContent += " · " + f.uyarilar.join("; ");
+}
+// Kutulardaki fiyat: elle yazılmışsa o, değilse yüklenen.
+function gecerliFiyat() {
+  const alanlar = [["pHasAlis", "alis"], ["pHasSatis", "satis"], ["p14", "a14"], ["p22", "b22"]];
+  const v = {}; let hataVar = false;
+  alanlar.forEach(([id, k]) => {
+    const r = H.sayiOku($(id).value, "fiyat");
+    $(id).setAttribute("aria-invalid", !r.ok && !r.bos ? "true" : "false");
+    $(id + "Err").textContent = !r.ok && !r.bos ? r.hata : "";
+    if (r.ok) v[k] = r.deger; else if (!r.bos && (k === "alis" || k === "satis")) hataVar = true;
+  });
+  if (hataVar || !v.alis || !v.satis) return null;
+  if (v.satis < v.alis) { $("pHasSatisErr").textContent = "Satış, alıştan küçük olamaz"; $("pHasSatis").setAttribute("aria-invalid", "true"); return null; }
+  const f = { kaynak: durum.elle ? "Elle girilen" : (yuklenenFiyat ? yuklenenFiyat.fiyat.kaynak : ""), has: { alis: v.alis, satis: v.satis } };
+  if (v.a14) f.ayar14 = { alis: v.a14, satis: v.a14 };
+  if (v.b22) f.bilezik22 = { alis: v.b22, satis: v.b22 };
+  if (yuklenenFiyat && yuklenenFiyat.fiyat.ayar18 && !durum.elle) f.ayar18 = yuklenenFiyat.fiyat.ayar18;
+  return f;
+}
+
+// ---- Hesap ve ekran ----
+let ozet = "";
+function hesapla() {
+  const s = H.hesapla(durum.verilen, durum.alinan);
+  // Kart başına hata ve has karşılığı
+  ["verilen", "alinan"].forEach((taraf) => {
+    const kartlar = $(taraf === "verilen" ? "givenList" : "takenList").children;
+    s[taraf].forEach((r, i) => {
+      const k = kartlar[i]; if (!k) return;
+      const a = k._alanlar, gs = r.ok ? null : r.sorun.find((x) => x.alan === "gram"), ms = r.ok ? null : r.sorun.find((x) => x.alan === "milyem");
+      a.gErr.textContent = gs ? gs.hata : ""; a.mErr.textContent = ms ? ms.hata : (r.ok && r.uyari ? r.uyari : "");
+      a.gram.setAttribute("aria-invalid", gs ? "true" : "false"); a.mil.setAttribute("aria-invalid", ms ? "true" : "false");
+      k.classList.toggle("hatali", !r.ok);
+      a.hint.replaceChildren(document.createTextNode("Has karşılığı: "), el("b", { text: r.ok ? H.fmt(r.has) + " g" : "–" }));
+    });
+  });
+  const fiyat = gecerliFiyat();
+  const v = $("verdict");
+  if (!s.hazir) {
+    const ilk = s.sorunlar[0];
+    const yer = ilk.taraf === "genel" ? "" : `${ilk.taraf === "verilen" ? "Verilen" : "Alınan"} ${ilk.sira + 1}. parça: `;
+    v.className = "verdict warn";
+    $("verdictText").textContent = "Hesap için eksik ya da hatalı kutu var";
+    $("bigHas").textContent = yer + ilk.sorun[0].hata;
+    $("bigHas").style.fontSize = "1.05rem";
+    ["eq22", "eq14", "eqTL", "mGiven", "mTaken", "mDiff"].forEach((id) => $(id).textContent = "–");
+    $("theoNote").textContent = ""; $("mNote").textContent = "";
+    $("givenTot").textContent = ""; $("takenTot").textContent = "";
+    ozet = ""; waGuncelle();
+    kaydet(); return;
+  }
+  $("bigHas").style.fontSize = "";
+  $("givenTot").textContent = H.fmt(s.verilenHas) + " g has";
+  $("takenTot").textContent = H.fmt(s.alinanHas) + " g has";
+  if (s.yon === "esit") { v.className = "verdict good"; $("verdictText").textContent = "Takas başa baş"; $("bigHas").textContent = "0,000 g has"; }
+  else {
+    v.className = "verdict " + (s.yon === "kuyumcu" ? "good" : "bad");
+    $("verdictText").textContent = s.yon === "kuyumcu" ? "Kuyumcu size borçlu" : "Siz kuyumcuya ödersiniz";
+    $("bigHas").textContent = H.fmt(s.mutlak) + " g has";
+  }
+  $("eq22").textContent = H.fmt(s.esdeger22, 2) + " g";
+  $("eq14").textContent = H.fmt(s.esdeger14, 2) + " g";
+  const para = H.paraKarsiligi(s, fiyat);
+  $("eqTLl").textContent = para ? `Para olarak (has ${para.fiyatTuru} fiyatıyla)` : "Para olarak";
+  $("eqTL").textContent = para ? H.tl(para.tutar) : "Fiyat yok";
+  $("theoNote").textContent = `Tam milyemle hesapta fark ${H.fmt(s.teorikFark)} g has olurdu. Kuyumcunun milyemleriyle aradaki pay: ${H.fmt(s.kuyumcuPayi)} g has` +
+    (fiyat ? ` (≈ ${H.tl(Math.abs(s.kuyumcuPayi) * fiyat.has.alis)}).` : ".");
+  const pz = H.piyasa(s, fiyat);
+  if (pz) {
+    $("mGiven").textContent = H.tl(pz.verilenTL); $("mTaken").textContent = H.tl(pz.alinanTL);
+    $("mDiffL").textContent = pz.yon === "kuyumcu" ? "Size kalması gereken" : "Sizin ödemeniz gereken";
+    $("mDiff").textContent = H.tl(Math.abs(pz.fark));
+    $("mNote").textContent = "Verilen altın tam milyem × has alış fiyatıyla, alınan altın o ayarın satış fiyatıyla hesaplandı. Kuyumcunun teklifi bu farkın çok altındaysa pazarlık payı var." +
+      (fiyat.ayar14 ? ` Bu fiyatla 14 ayar yaklaşık ${H.fmt(fiyat.ayar14.satis / fiyat.has.satis)} milyemden satılıyor.` : "");
+  } else {
+    ["mGiven", "mTaken", "mDiff"].forEach((id) => $(id).textContent = "–");
+    $("mNote").textContent = "Fiyat olmadan piyasa kıyası yapılamaz; yukarıya has alış ve satış fiyatını yazın.";
+  }
+  let fiyatEtiket = "";
+  if (fiyat) fiyatEtiket = durum.elle ? "elle girilen fiyat" : yuklenenFiyat ? `${yuklenenFiyat.fiyat.kaynak} ${new Date(yuklenenFiyat.fiyat.zamanMs).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "";
+  ozet = H.ozetMetni(s, fiyat, fiyatEtiket);
+  waGuncelle();
+  kaydet();
+}
+function waGuncelle() {
+  const a = $("waBtn");
+  if (ozet) { a.href = "https://wa.me/?text=" + encodeURIComponent(ozet); a.removeAttribute("aria-disabled"); a.style.opacity = ""; }
+  else { a.href = "#"; a.setAttribute("aria-disabled", "true"); a.style.opacity = ".5"; }
+}
+
+// ---- Olaylar ----
+function parcaEkle(taraf) {
+  if (durum[taraf].length >= 50) { $("msg").textContent = "En çok 50 parça eklenebilir."; return; }
+  const ayar = taraf === "verilen" ? "8" : "14";
+  durum[taraf].push({ ad: taraf === "verilen" ? "Verilen parça" : "Alınan parça", gram: "", ayar, milyem: H.fmt(H.AYAR[ayar]) });
+  kartCiz(taraf); hesapla();
+  const kartlar = $(taraf === "verilen" ? "givenList" : "takenList").children;
+  const son = kartlar[kartlar.length - 1]; if (son) son._alanlar.gram.focus();
+}
+$("addGiven").addEventListener("click", () => parcaEkle("verilen"));
+$("addTaken").addEventListener("click", () => parcaEkle("alinan"));
+["pHasAlis", "pHasSatis", "p14", "p22"].forEach((id) => $(id).addEventListener("input", () => {
+  durum.elle = true; fiyatDurumu(""); hesapla();
+}));
+$("yenile").addEventListener("click", () => { durum.elle = null; fiyatYukle(); });
+$("waBtn").addEventListener("click", (e) => { if (!ozet) { e.preventDefault(); $("msg").textContent = "Önce hatalı kutuları düzeltin."; } });
+$("copyBtn").addEventListener("click", () => {
+  const msg = $("msg"), fb = $("fallback");
+  if (!ozet) { msg.textContent = "Önce hatalı kutuları düzeltin."; return; }
+  const yedek = () => { fb.value = ozet; fb.hidden = false; fb.focus(); fb.select(); msg.textContent = "Otomatik kopyalanamadı; aşağıdaki metni seçip kopyalayın."; };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ozet).then(() => { msg.textContent = "Kopyalandı."; fb.hidden = true; }, yedek);
+  } else yedek();
+});
+// Onay gerektiren iki düğme: ikinci basışta uygulanır (confirm() bazı uygulama içi tarayıcılarda çalışmaz).
+let bekleyen = null, bekleyenZaman = 0;
+function iki(ad, metin, is) {
+  const simdi = Date.now();
+  if (bekleyen === ad && simdi - bekleyenZaman < 4000) { bekleyen = null; $("onay").hidden = true; is(); return; }
+  bekleyen = ad; bekleyenZaman = simdi; $("onay").hidden = false; $("onay").textContent = metin + " Onaylamak için tekrar basın.";
+}
+$("sifirla").addEventListener("click", () => iki("sifirla", "Girdiğiniz parçalar silinip örnek yüklenecek.", () => {
+  durum = kopya(ORNEK); kartCiz("verilen"); kartCiz("alinan"); if (yuklenenFiyat) fiyatKutulariniDoldur(yuklenenFiyat.fiyat); fiyatDurumu(""); hesapla();
+}));
+$("temizle").addEventListener("click", () => iki("temizle", "Bütün parçalar silinecek.", () => {
+  durum.verilen = []; durum.alinan = []; kartCiz("verilen"); kartCiz("alinan"); hesapla();
+}));
+
+// ---- Başlat ----
+$("surum").textContent = H.SURUM;
+if (durum.elle) { ["pHasAlis", "pHasSatis", "p14", "p22"].forEach((id) => { $(id).value = String(durum.elle[id] ?? "").slice(0, 20); }); }
+kartCiz("verilen"); kartCiz("alinan"); hesapla();
+fiyatYukle();
+setInterval(() => { if (document.visibilityState === "visible") fiyatYukle(); }, 5 * 60 * 1000);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && yuklenenFiyat && Date.now() - yuklenenFiyat.fiyat.zamanMs > 5 * 60 * 1000) fiyatYukle();
+});
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+</script>
+</body>
+</html>
